@@ -1,0 +1,57 @@
+name: image-security
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "demo-app/**"
+      - ".github/workflows/image-security.yml"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build_scan_sign:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS creds
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: us-east-1
+          role-to-assume: arn:aws:iam::405449137534:role/GitHubActionsECRPushRole
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region us-east-1 | \
+          docker login --username AWS --password-stdin 405449137534.dkr.ecr.us-east-1.amazonaws.com
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push (amd64)
+        run: |
+          docker buildx build --platform linux/amd64 \
+            -t 405449137534.dkr.ecr.us-east-1.amazonaws.com/demo-app:${{ github.sha }} \
+            --push demo-app
+
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@0.22.0
+        with:
+          image-ref: 405449137534.dkr.ecr.us-east-1.amazonaws.com/demo-app:${{ github.sha }}
+          format: table
+          exit-code: "0"
+
+      - name: SBOM (Syft)
+        uses: anchore/sbom-action@v0
+        with:
+          image: 405449137534.dkr.ecr.us-east-1.amazonaws.com/demo-app:${{ github.sha }}
+          format: spdx-json
+
+      - name: Cosign sign (keyless)
+        run: |
+          COSIGN_EXPERIMENTAL=1 cosign sign --yes \
+            405449137534.dkr.ecr.us-east-1.amazonaws.com/demo-app:${{ github.sha }}
