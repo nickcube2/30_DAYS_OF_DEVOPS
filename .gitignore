@@ -7,3 +7,4 @@
 *.tfstate.backup
 .terraform.lock.hcl
 .DS_Store
+.DS_Store
